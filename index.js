@@ -23,13 +23,17 @@ class Future {
     fn(resolve, reject);
   }
 
+  _applyFnIfExists(fn, val) {
+    return typeof fn === "function" ? fn(val) : val;
+  }
+
   then(onFulfilled, onRejected) {
     if (this.status === "pending") {
       return new Future((resolve, reject) => {
         // resolve the new Future to be returned by `then` when the
         // current Future is resolved
         this.onFulfilledCallbacks.push(() => {
-          const fulfilled = onFulfilled(this.value);
+          const fulfilled = this._applyFnIfExists(onFulfilled, this.value);
 
           // if the value returned by `then` is a thenable, call its
           // `then` method; otherwise resolve this future
@@ -41,25 +45,47 @@ class Future {
         });
 
         this.onRejectedCallbacks.push(() => {
-          reject(onRejected(this.reason));
+          const rejected = this._applyFnIfExists(onRejected, this.reason);
+
+          if (rejected && typeof rejected.then === "function") {
+            rejected.then(resolve, reject);
+          } else {
+            reject(rejected);
+          }
         });
       });
     }
 
-    // if (this.status === "fulfilled") {
-    //   return new Future((resolve, reject) => {
-    //     resolve(onFulfilled(this.value));
-    //   });
-    // }
+    if (this.status === "fulfilled") {
+      return new Future((resolve, reject) => {
+        const fulfilled = this._applyFnIfExists(onFulfilled, this.value);
+        if (fulfilled && typeof fulfilled.then === "function") {
+          fulfilled.then(resolve, reject);
+        } else {
+          resolve(fulfilled);
+        }
+      });
+    }
 
-    // if (this.status === "rejected") {
-    //   onRejected(this.reason);
-    //   return new Future();
-    // }
+    if (this.status === "rejected") {
+      return new Future((resolve, reject) => {
+        const rejected = this._applyFnIfExists(onRejected, this.reason);
+        if (rejected && typeof rejected.then === "function") {
+          rejected.then(resolve, reject);
+        } else {
+          reject(rejected);
+        }
+      });
+    }
+  }
+
+  catch(onRejected) {
+    this.then(undefined, onRejected);
   }
 }
 
-const createPromise = (v) => {
+// test Future object
+const createResolved = (v) => {
   return new Future((resolve, reject) => {
     setTimeout(() => {
       resolve(v);
@@ -67,24 +93,37 @@ const createPromise = (v) => {
   });
 };
 
-const p1 = createPromise("my value");
-const p2 = createPromise("another value");
-const p3 = createPromise("a final value");
+const createRejected = (r) => {
+  return new Future((resolve, reject) => {
+    setTimeout(() => {
+      reject(r);
+    }, 1000);
+  });
+};
+
+const p1 = createResolved("my value");
 
 p1.then((v) => {
   console.log(v);
-  return p2;
+  return createResolved("another value");
 })
   .then((v) => {
     console.log(v);
-    return p3;
+    return createResolved("a final value");
   })
   .then((v) => {
     console.log(v);
+    return createRejected("something broke");
+  })
+  .catch((r) => {
+    console.log(r);
   });
 
 setTimeout(() => {
   console.log(p1);
-  console.log(p2);
-  console.log(p3);
+  p1.then((v) => {
+    return createResolved("a value from a promise added after p1 is fulfilled");
+  }).then((v) => {
+    console.log(v);
+  });
 }, 5 * 1000);
