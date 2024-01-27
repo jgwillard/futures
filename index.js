@@ -23,8 +23,24 @@ class Future {
     fn(resolve, reject);
   }
 
+  /**
+   * if fn is a function, apply it to val and return output; otherwise
+   * return val
+   */
   _applyFnIfExists(fn, val) {
     return typeof fn === "function" ? fn(val) : val;
+  }
+
+  /**
+   * if the value returned by `then` is a thenable, call its `then`
+   * method; otherwise settle (resolve or reject) this future
+   */
+  _callThenIfTheable(val, resolve, reject) {
+    if (val && typeof val.then === "function") {
+      val.then(resolve, reject);
+    } else {
+      this.status === "fulfilled" ? resolve(val) : reject(val);
+    }
   }
 
   then(onFulfilled, onRejected) {
@@ -34,24 +50,12 @@ class Future {
         // current Future is resolved
         this.onFulfilledCallbacks.push(() => {
           const fulfilled = this._applyFnIfExists(onFulfilled, this.value);
-
-          // if the value returned by `then` is a thenable, call its
-          // `then` method; otherwise resolve this future
-          if (fulfilled && typeof fulfilled.then === "function") {
-            fulfilled.then(resolve, reject);
-          } else {
-            resolve(fulfilled);
-          }
+          this._callThenIfTheable(fulfilled, resolve, reject);
         });
 
         this.onRejectedCallbacks.push(() => {
           const rejected = this._applyFnIfExists(onRejected, this.reason);
-
-          if (rejected && typeof rejected.then === "function") {
-            rejected.then(resolve, reject);
-          } else {
-            reject(rejected);
-          }
+          this._callThenIfTheable(rejected, resolve, reject);
         });
       });
     }
@@ -59,22 +63,14 @@ class Future {
     if (this.status === "fulfilled") {
       return new Future((resolve, reject) => {
         const fulfilled = this._applyFnIfExists(onFulfilled, this.value);
-        if (fulfilled && typeof fulfilled.then === "function") {
-          fulfilled.then(resolve, reject);
-        } else {
-          resolve(fulfilled);
-        }
+        this._callThenIfTheable(fulfilled, resolve, reject);
       });
     }
 
     if (this.status === "rejected") {
       return new Future((resolve, reject) => {
         const rejected = this._applyFnIfExists(onRejected, this.reason);
-        if (rejected && typeof rejected.then === "function") {
-          rejected.then(resolve, reject);
-        } else {
-          reject(rejected);
-        }
+        this._callThenIfTheable(rejected, resolve, reject);
       });
     }
   }
